@@ -1,0 +1,9 @@
+[package]
+name = "aqos-policy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Memory-safe AQ OS boot and trust policy primitives"
+
+[lib]
+path = "src/lib.rs"
