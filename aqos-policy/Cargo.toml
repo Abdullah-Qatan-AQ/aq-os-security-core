@@ -7,3 +7,7 @@ description = "Memory-safe AQ OS boot and trust policy primitives"
 
 [lib]
 path = "src/lib.rs"
+
+[dependencies]
+sha2 = { version = "0.10", default-features = false }
+ed25519-dalek = { version = "2", default-features = false, features = ["alloc", "zeroize"] }

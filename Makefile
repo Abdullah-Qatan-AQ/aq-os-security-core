@@ -10,4 +10,4 @@ rust-test:
 	cargo test -p aqos-policy
 
 rust-kernel:
-	cargo build -p aqos-kernel --target x86_64-unknown-none
+	cargo run -p aqos-image

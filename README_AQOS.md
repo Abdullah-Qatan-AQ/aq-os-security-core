@@ -11,12 +11,13 @@ python3 -m pip install cryptography
 python3 test_aqos.py
 python3 test_aqos_hardening.py
 cargo test -p aqos-policy
-cargo build -p aqos-kernel --target x86_64-unknown-none
+cargo run -p aqos-image
+cargo run -p aqos-image -- --run
 ```
 
 الاختبارات الحالية تغطي 45 هجمة أساسية و6 اختبارات إدخال حدودية إضافية.
 
-تفاصيل انتقال Rust موجودة في [RUST_MIGRATION.md](RUST_MIGRATION.md). طبقة `aqos-policy` تستخدم حاليًا قياسًا غير تشفيري مؤقتًا، لذلك لا يجوز اعتبارها جذر ثقة قبل استبداله بـ SHA-256 موثّق وربطه بـ TEE أو ROM.
+تفاصيل انتقال Rust موجودة في [RUST_MIGRATION.md](RUST_MIGRATION.md). طبقة `aqos-policy` تستخدم SHA-256 وEd25519 فعليين، والصورة تقلع في QEMU عبر BIOS. ربط مفاتيح التوقيع بـ ROM أو TEE حقيقي ما يزال جزءًا من مرحلة العتاد.
 
 ## ما تم تقويته في هذه النسخة
 

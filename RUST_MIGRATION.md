@@ -2,22 +2,20 @@
 
 أضيفت أول طبقة تنفيذية Rust إلى جانب نموذج Python المرجعي:
 
-- `aqos-policy`: مكتبة `no_std` بلا تخصيص ذاكرة، تحتوي سياسة ترتيب مراحل الإقلاع، منع الرجوع، والقياس المرحلي.
-- `kernel`: ثنائي `no_std` له نقطة دخول `_start` وهدف `x86_64-unknown-none`، ويكتب رسالة bootstrap إلى VGA.
+- `aqos-policy`: مكتبة `no_std` بلا تخصيص ذاكرة، تحتوي سياسة ترتيب مراحل الإقلاع، منع الرجوع، وقياس PCR باستخدام SHA-256 فعلي.
+- `Ed25519Verifier`: تحقق توقيع فعلي لصيغة مراحل AQ OS (`name|version|SHA256(image)`).
+- `kernel`: نواة `no_std` تستخدم `bootloader_api`، وتقلع عبر BIOS إلى VGA وserial.
+- `image-builder`: ينتج صورة BIOS raw قابلة للإقلاع باستخدام bootloader مفتوح المصدر.
 
 ## البناء
 
 ```bash
-rustup target add x86_64-unknown-none
+cargo run -p aqos-image
 cargo test -p aqos-policy
-cargo build -p aqos-kernel --target x86_64-unknown-none
+cargo run -p aqos-image -- --run
 ```
 
-## تحذير مهم
-
-`aqos-policy` يستخدم حاليًا دالة قياس غير تشفيرية مؤقتة حتى تبقى المكتبة بلا اعتماد تشفير غير مراجع. لا يجوز استخدامها كجذر ثقة. قبل قبول إقلاع فعلي يجب استبدالها بتطبيق SHA-256 مراجع ومختبر، وربط التحقق من Ed25519 بجذر ثقة ROM أو TEE.
-
-النواة الحالية هي bootstrap قابل للبناء وليست صورة إقلاع مكتملة. ما ينقصها قبل تشغيل QEMU كنظام فعلي:
+تم اختبار صورة BIOS فعليًا في QEMU، وظهرت الرسالة `AQ OS kernel: Rust bare-metal boot OK` عبر serial. ما يزال يلزم قبل نظام هاتف فعلي:
 
 1. boot protocol موثق مثل UEFI أو Multiboot2.
 2. linker script وصورة disk/EFI قابلة للإقلاع.

@@ -8,6 +8,9 @@
 pub const STAGE_COUNT: usize = 4;
 pub const STAGE_NAMES: [&str; STAGE_COUNT] = ["bootloader", "kernel", "system", "secure_services"];
 
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use sha2::{Digest, Sha256};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Measurement(pub [u8; 32]);
 
@@ -27,6 +30,38 @@ pub trait SignatureVerifier {
     fn verify(&self, stage: usize, version: u64, image: &[u8], signature: &[u8]) -> bool;
 }
 
+pub struct Ed25519Verifier {
+    vendor_key: VerifyingKey,
+}
+
+impl Ed25519Verifier {
+    pub fn from_bytes(bytes: &[u8; 32]) -> Result<Self, ed25519_dalek::SignatureError> {
+        Ok(Self {
+            vendor_key: VerifyingKey::from_bytes(bytes)?,
+        })
+    }
+}
+
+impl SignatureVerifier for Ed25519Verifier {
+    fn verify(&self, stage: usize, version: u64, image: &[u8], signature: &[u8]) -> bool {
+        let Ok(signature) = Signature::from_slice(signature) else {
+            return false;
+        };
+        let name = STAGE_NAMES[stage].as_bytes();
+        let mut message = [0u8; 64];
+        let mut len = 0;
+        message[..name.len()].copy_from_slice(name);
+        len += name.len();
+        message[len] = b'|';
+        len += 1;
+        message[len..len + 8].copy_from_slice(&version.to_be_bytes());
+        len += 8;
+        message[len..len + 32].copy_from_slice(&Sha256::digest(image));
+        len += 32;
+        self.vendor_key.verify(&message[..len], &signature).is_ok()
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BootStage<'a> {
     pub name: &'a str,
@@ -41,7 +76,9 @@ pub struct BootPolicy {
 
 impl BootPolicy {
     pub const fn new() -> Self {
-        Self { counters: [0; STAGE_COUNT] }
+        Self {
+            counters: [0; STAGE_COUNT],
+        }
     }
 
     pub fn counters(&self) -> &[u64; STAGE_COUNT] {
@@ -71,9 +108,6 @@ impl BootPolicy {
             if !verifier.verify(i, stage.version, stage.image, stage.signature) {
                 return Err(BootError::BadSignature);
             }
-            // Placeholder for the platform SHA-256 measurement primitive.
-            // The production kernel must replace this with a constant-time,
-            // hardware-reviewed SHA-256 implementation before accepting boot.
             measurement = extend_measurement(measurement, stage.image);
             next[i] = stage.version;
             i += 1;
@@ -85,16 +119,12 @@ impl BootPolicy {
     }
 }
 
-const fn extend_measurement(mut state: [u8; 32], image: &[u8]) -> [u8; 32] {
-    // Deterministic non-cryptographic placeholder used only to make the policy
-    // crate testable without pulling an unreviewed crypto implementation into
-    // the kernel. It must not be used as a security hash.
-    let mut i = 0;
-    while i < image.len() {
-        state[i % 32] = state[i % 32].wrapping_add(image[i]).rotate_left((i % 8) as u32);
-        i += 1;
-    }
-    state
+fn extend_measurement(state: [u8; 32], image: &[u8]) -> [u8; 32] {
+    let image_hash = Sha256::digest(image);
+    let mut h = Sha256::new();
+    h.update(state);
+    h.update(image_hash);
+    h.finalize().into()
 }
 
 #[cfg(test)]
@@ -103,15 +133,37 @@ mod tests {
 
     struct Accept;
     impl SignatureVerifier for Accept {
-        fn verify(&self, _: usize, _: u64, _: &[u8], _: &[u8]) -> bool { true }
+        fn verify(&self, _: usize, _: u64, _: &[u8], _: &[u8]) -> bool {
+            true
+        }
     }
 
     fn stages(version: u64) -> [BootStage<'static>; STAGE_COUNT] {
         [
-            BootStage { name: "bootloader", version, image: b"bl", signature: b"sig" },
-            BootStage { name: "kernel", version, image: b"kernel", signature: b"sig" },
-            BootStage { name: "system", version, image: b"system", signature: b"sig" },
-            BootStage { name: "secure_services", version, image: b"sec", signature: b"sig" },
+            BootStage {
+                name: "bootloader",
+                version,
+                image: b"bl",
+                signature: b"sig",
+            },
+            BootStage {
+                name: "kernel",
+                version,
+                image: b"kernel",
+                signature: b"sig",
+            },
+            BootStage {
+                name: "system",
+                version,
+                image: b"system",
+                signature: b"sig",
+            },
+            BootStage {
+                name: "secure_services",
+                version,
+                image: b"sec",
+                signature: b"sig",
+            },
         ]
     }
 
