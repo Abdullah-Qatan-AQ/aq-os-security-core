@@ -23,3 +23,8 @@ jobs:
       - run: python -m py_compile aqos_core.py test_aqos.py test_aqos_hardening.py
       - run: python test_aqos.py
       - run: python test_aqos_hardening.py
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-none
+      - run: cargo test -p aqos-policy
+      - run: cargo build -p aqos-kernel --target x86_64-unknown-none
