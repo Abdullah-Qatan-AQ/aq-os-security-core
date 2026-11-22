@@ -6,6 +6,8 @@
 - `Ed25519Verifier`: تحقق توقيع فعلي لصيغة مراحل AQ OS (`name|version|SHA256(image)`).
 - `kernel`: نواة `no_std` تستخدم `bootloader_api`، وتقلع عبر BIOS إلى VGA وserial.
 - `image-builder`: ينتج صورة BIOS raw قابلة للإقلاع باستخدام bootloader مفتوح المصدر.
+- `kernel/src/memory.rs`: مخصّص إطارات فيزيائية من خريطة الذاكرة التي يمررها bootloader.
+- `kernel/src/heap.rs`: heap حقيقي بصفحات 4KiB و`LockedHeap` كمخصّص عام.
 
 ## البناء
 
@@ -16,6 +18,8 @@ cargo run -p aqos-image -- --run
 ```
 
 تم اختبار صورة BIOS فعليًا في QEMU، وظهرت الرسالة `AQ OS kernel: Rust bare-metal boot OK` عبر serial. ما يزال يلزم قبل نظام هاتف فعلي:
+
+تم تنفيذ المرحلة الأولى الآن: تهيئة خريطة الذاكرة الفيزيائية، تخصيص إطارات usable، إنشاء صفحات heap، واختبار `Box` داخل النواة. يظهر في QEMU: `AQ OS kernel: memory manager OK`.
 
 1. boot protocol موثق مثل UEFI أو Multiboot2.
 2. linker script وصورة disk/EFI قابلة للإقلاع.

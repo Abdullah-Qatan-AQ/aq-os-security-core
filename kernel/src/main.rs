@@ -1,10 +1,22 @@
 #![no_std]
 #![no_main]
 
-use bootloader_api::{entry_point, BootInfo};
+extern crate alloc;
+
+mod heap;
+mod memory;
+
+use alloc::boxed::Box;
+use bootloader_api::{config::Mapping, entry_point, BootInfo, BootloaderConfig};
 use core::{arch::asm, panic::PanicInfo};
 
-entry_point!(kernel_main);
+pub static BOOTLOADER_CONFIG: BootloaderConfig = {
+    let mut config = BootloaderConfig::new_default();
+    config.mappings.physical_memory = Some(Mapping::Dynamic);
+    config
+};
+
+entry_point!(kernel_main, config = &BOOTLOADER_CONFIG);
 
 fn serial_write(byte: u8) {
     unsafe {
@@ -29,9 +41,22 @@ fn serial_print(message: &[u8]) {
     }
 }
 
-fn kernel_main(_boot_info: &'static mut BootInfo) -> ! {
-    serial_print(b"AQ OS kernel: Rust bare-metal boot OK\r\n");
-    let message = b"AQ OS kernel: Rust bare-metal boot OK";
+fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
+    let physical_memory_offset = match boot_info.physical_memory_offset.into_option() {
+        Some(offset) => offset,
+        None => panic!("physical memory mapping missing"),
+    };
+
+    let mut mapper = unsafe { memory::init_mapper(physical_memory_offset) };
+    let memory_regions = unsafe { core::ptr::read(&boot_info.memory_regions) };
+    let mut frame_allocator = unsafe { memory::BootInfoFrameAllocator::init(memory_regions) };
+    heap::init_heap(&mut mapper, &mut frame_allocator).expect("heap initialization failed");
+
+    let allocation = Box::new(0xA005_u64);
+    assert_eq!(*allocation, 0xA005_u64);
+    serial_print(b"AQ OS kernel: memory manager OK\r\n");
+
+    let message = b"AQ OS kernel: memory manager OK";
     let vga = 0xb8000 as *mut u8;
     let mut i = 0;
     while i < message.len() {

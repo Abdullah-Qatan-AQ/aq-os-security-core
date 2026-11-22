@@ -30,3 +30,13 @@ jobs:
       - run: cargo test -p aqos-policy
       - run: cargo build -p aqos-kernel --target x86_64-unknown-none
       - run: cargo run -p aqos-image
+      - run: sudo apt-get update && sudo apt-get install -y qemu-system-x86
+      - name: Boot memory-manager image in QEMU
+        shell: bash
+        run: |
+          set +e
+          timeout 12 cargo run -p aqos-image -- --run > qemu.log 2>&1
+          code=$?
+          set -e
+          test "$code" -eq 124
+          grep -q "AQ OS kernel: memory manager OK" qemu.log
