@@ -73,7 +73,14 @@ pub unsafe fn init(kernel_code_selector: u16, user_code_selector: u16) {
 
 #[no_mangle]
 extern "C" fn aqos_syscall_handler(number: u64) -> u64 {
-    if number == 1 {
+    if number == 0 {
+        let switched = unsafe { crate::process::yield_next() };
+        if switched.is_some() {
+            crate::serial_print(b"AQ OS kernel: user process context switch OK\r\n");
+        } else {
+            crate::serial_print(b"AQ OS kernel: user process yield no peer\r\n");
+        }
+    } else if number == 1 {
         crate::serial_print(b"AQ OS kernel: hardware syscall entry OK\r\n");
     } else {
         crate::serial_print(b"AQ OS kernel: unknown hardware syscall\r\n");

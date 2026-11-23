@@ -10,6 +10,7 @@ mod gdt;
 mod heap;
 mod interrupts;
 mod memory;
+mod process;
 mod scheduler;
 mod syscall_entry;
 
@@ -55,7 +56,7 @@ unsafe fn enter_user_mode(
     frame.iretq()
 }
 
-const TEST_ELF_SIZE: usize = 0x110A;
+const TEST_ELF_SIZE: usize = 0x1111;
 static mut TEST_ELF: [u8; TEST_ELF_SIZE] = [0; TEST_ELF_SIZE];
 
 fn build_test_elf() -> &'static [u8] {
@@ -79,10 +80,13 @@ fn build_test_elf() -> &'static [u8] {
         image[ph + 8..ph + 16].copy_from_slice(&0x1100u64.to_le_bytes());
         image[ph + 16..ph + 24]
             .copy_from_slice(&(address_space::USER_IMAGE_BASE + 0x100).to_le_bytes());
-        image[ph + 32..ph + 40].copy_from_slice(&10u64.to_le_bytes());
-        image[ph + 40..ph + 48].copy_from_slice(&10u64.to_le_bytes());
+        image[ph + 32..ph + 40].copy_from_slice(&17u64.to_le_bytes());
+        image[ph + 40..ph + 48].copy_from_slice(&17u64.to_le_bytes());
         image[ph + 48..ph + 56].copy_from_slice(&0x1000u64.to_le_bytes());
-        image[0x1100..0x110A].copy_from_slice(&[0xCC, 0xB8, 1, 0, 0, 0, 0x0F, 0x05, 0xEB, 0xFE]);
+        image[0x1100..0x1111].copy_from_slice(&[
+            0xCC, 0xB8, 0, 0, 0, 0, 0x0F, 0x05,
+            0xB8, 1, 0, 0, 0, 0x0F, 0x05, 0xEB, 0xFE,
+        ]);
         core::slice::from_raw_parts(core::ptr::addr_of!(TEST_ELF) as *const u8, TEST_ELF_SIZE)
     }
 }
@@ -144,6 +148,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         )
     }
     .expect("user address-space root allocation failed");
+    serial_print(b"AQ OS: process space A allocated\r\n");
     let space_b = unsafe {
         address_space::create_root_with_kernel_mappings(
             physical_memory_offset,
@@ -151,21 +156,20 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         )
     }
     .expect("second user address-space root allocation failed");
+    serial_print(b"AQ OS: process space B allocated\r\n");
     let user_page =
         Page::<Size4KiB>::containing_address(VirtAddr::new(address_space::USER_IMAGE_BASE));
-    let user_frame_b = frame_allocator
-        .allocate_frame()
-        .expect("second user page frame allocation failed");
     let user_stack_frame = frame_allocator
         .allocate_frame()
         .expect("user stack frame allocation failed");
+    let user_stack_frame_b = frame_allocator
+        .allocate_frame()
+        .expect("second user stack frame allocation failed");
     let mut mapper_a =
         unsafe { address_space::mapper_for_root(space_a.root_frame(), physical_memory_offset) };
     let mut mapper_b =
         unsafe { address_space::mapper_for_root(space_b.root_frame(), physical_memory_offset) };
     unsafe {
-        address_space::map_user_page(&mut mapper_b, user_page, user_frame_b, &mut frame_allocator)
-            .expect("user page mapping B failed");
         address_space::map_user_page(
             &mut mapper_a,
             Page::<Size4KiB>::containing_address(VirtAddr::new(USER_STACK_BASE)),
@@ -173,7 +177,17 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
             &mut frame_allocator,
         )
         .expect("user stack mapping failed");
+        serial_print(b"AQ OS: process A stack mapped\r\n");
+        address_space::map_user_page(
+            &mut mapper_b,
+            Page::<Size4KiB>::containing_address(VirtAddr::new(USER_STACK_BASE)),
+            user_stack_frame_b,
+            &mut frame_allocator,
+        )
+        .expect("second user stack mapping failed");
+        serial_print(b"AQ OS: process B stack mapped\r\n");
     }
+    serial_print(b"AQ OS: loading process A ELF\r\n");
     let loaded = unsafe {
         elf::load(
             build_test_elf(),
@@ -184,6 +198,16 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     }
     .expect("ELF user image load failed");
     assert_eq!(loaded.load_segments, 1);
+    let loaded_b = unsafe {
+        elf::load(
+            build_test_elf(),
+            &mut mapper_b,
+            &mut frame_allocator,
+            physical_memory_offset,
+        )
+    }
+    .expect("second ELF user image load failed");
+    assert_eq!(loaded_b.entry, loaded.entry);
     serial_print(b"AQ OS kernel: ELF user image loaded OK\r\n");
     assert!(address_space::same_virtual_page_is_isolated(
         &mapper_a, &mapper_b, user_page,
@@ -223,6 +247,22 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     );
     assert_eq!(denied, Err(Error::PermissionDenied));
     serial_print(b"AQ OS kernel: syscall capability gate OK\r\n");
+    assert!(process::install(process::ProcessControlBlock {
+        id: 0,
+        address_space: space_a,
+        entry: loaded.entry,
+        user_stack_top: USER_STACK_BASE + Size4KiB::SIZE,
+        state: process::State::Running,
+    }));
+    assert!(process::install(process::ProcessControlBlock {
+        id: 1,
+        address_space: space_b,
+        entry: loaded_b.entry,
+        user_stack_top: USER_STACK_BASE + Size4KiB::SIZE,
+        state: process::State::Runnable,
+    }));
+    assert_eq!(process::current(), 0);
+    serial_print(b"AQ OS kernel: user process table OK\r\n");
 
     interrupts::init_idt();
     serial_print(b"AQ OS: IDT OK\r\n");
