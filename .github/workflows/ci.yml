@@ -40,8 +40,9 @@ jobs:
           code=$?
           set -e
           test "$code" -eq 124
+          grep -q "AQ OS kernel: GDT and TSS OK" qemu.log
           grep -q "AQ OS kernel: user address spaces and CR3 switch OK" qemu.log
           grep -q "AQ OS kernel: memory manager OK" qemu.log
           grep -q "AQ OS kernel: syscall capability gate OK" qemu.log
-          grep -q "AQ OS kernel: interrupts and timer OK" qemu.log
-          grep -q "AQ OS scheduler current task:" qemu.log
+          grep -q "AQ OS kernel: entering ring3 test" qemu.log
+          grep -q "AQ OS kernel: ring3 breakpoint trap OK" qemu.log

@@ -5,6 +5,7 @@
 extern crate alloc;
 
 mod address_space;
+mod gdt;
 mod heap;
 mod interrupts;
 mod memory;
@@ -16,7 +17,12 @@ use bootloader_api::{config::Mapping, entry_point, BootInfo, BootloaderConfig};
 use core::{arch::asm, panic::PanicInfo};
 use x86_64::{
     registers::control::Cr3,
-    structures::paging::{FrameAllocator, Page, Size4KiB},
+    registers::rflags::RFlags,
+    registers::segmentation::SegmentSelector,
+    structures::{
+        idt::InterruptStackFrame,
+        paging::{FrameAllocator, Page, PageSize, Size4KiB},
+    },
     VirtAddr,
 };
 
@@ -27,6 +33,24 @@ pub static BOOTLOADER_CONFIG: BootloaderConfig = {
 };
 
 entry_point!(kernel_main, config = &BOOTLOADER_CONFIG);
+
+const USER_STACK_BASE: u64 = 0x0000_0000_0080_0000;
+
+unsafe fn enter_user_mode(
+    space: address_space::AddressSpace,
+    user_code: SegmentSelector,
+    user_data: SegmentSelector,
+) -> ! {
+    space.activate();
+    let frame = InterruptStackFrame::new(
+        VirtAddr::new(address_space::USER_IMAGE_BASE),
+        user_code,
+        RFlags::from_bits_retain(0x202),
+        VirtAddr::new(USER_STACK_BASE + Size4KiB::SIZE),
+        user_data,
+    );
+    frame.iretq()
+}
 
 fn serial_write(byte: u8) {
     unsafe {
@@ -75,6 +99,8 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     let memory_regions = unsafe { core::ptr::read(&boot_info.memory_regions) };
     let mut frame_allocator = unsafe { memory::BootInfoFrameAllocator::init(memory_regions) };
     heap::init_heap(&mut mapper, &mut frame_allocator).expect("heap initialization failed");
+    let selectors = gdt::init();
+    serial_print(b"AQ OS kernel: GDT and TSS OK\r\n");
 
     let space_a = unsafe {
         address_space::create_root_with_kernel_mappings(
@@ -98,6 +124,9 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     let user_frame_b = frame_allocator
         .allocate_frame()
         .expect("second user page frame allocation failed");
+    let user_stack_frame = frame_allocator
+        .allocate_frame()
+        .expect("user stack frame allocation failed");
     let mut mapper_a =
         unsafe { address_space::mapper_for_root(space_a.root_frame(), physical_memory_offset) };
     let mut mapper_b =
@@ -107,6 +136,20 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
             .expect("user page mapping A failed");
         address_space::map_user_page(&mut mapper_b, user_page, user_frame_b, &mut frame_allocator)
             .expect("user page mapping B failed");
+        address_space::map_user_page(
+            &mut mapper_a,
+            Page::<Size4KiB>::containing_address(VirtAddr::new(USER_STACK_BASE)),
+            user_stack_frame,
+            &mut frame_allocator,
+        )
+        .expect("user stack mapping failed");
+    }
+    unsafe {
+        let code = (physical_memory_offset + user_frame_a.start_address().as_u64()) as *mut u8;
+        core::ptr::write_bytes(code, 0xF4, Size4KiB::SIZE as usize);
+        core::ptr::write(code, 0xCC);
+        core::ptr::write(code.add(1), 0xEB);
+        core::ptr::write(code.add(2), 0xFE);
     }
     assert!(address_space::same_virtual_page_is_isolated(
         &mapper_a, &mapper_b, user_page,
@@ -151,18 +194,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     serial_print(b"AQ OS: IDT OK\r\n");
     unsafe { interrupts::init_pics() };
     serial_print(b"AQ OS: PIC OK\r\n");
-    interrupts::enable();
-    serial_print(b"AQ OS: interrupts enabled\r\n");
-    while interrupts::ticks() < 10 {
-        x86_64::instructions::hlt();
-    }
-    serial_print(b"AQ OS kernel: interrupts and timer OK\r\n");
-    serial_print(b"AQ OS scheduler current task: ");
-    serial_print_hex(scheduler::current() as u64);
-
-    loop {
-        core::hint::spin_loop();
-    }
+    x86_64::instructions::interrupts::disable();
+    serial_print(b"AQ OS: interrupts configured\r\n");
+    serial_print(b"AQ OS kernel: entering ring3 test\r\n");
+    unsafe { enter_user_mode(space_a, selectors.user_code, selectors.user_data) }
 }
 
 #[panic_handler]
