@@ -5,6 +5,7 @@ use spin::{Mutex, Once};
 use x86_64::{
     structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode},
     PrivilegeLevel,
+    VirtAddr,
 };
 
 pub const PIC_1_OFFSET: u8 = 32;
@@ -23,6 +24,7 @@ static PICS: Mutex<ChainedPics> =
 static TICKS: AtomicU64 = AtomicU64::new(0);
 static USER_BREAKPOINT_HIT: AtomicU8 = AtomicU8::new(0);
 static TIMER_REPORTED: AtomicU8 = AtomicU8::new(0);
+static PREEMPTION_REPORTED: AtomicU8 = AtomicU8::new(0);
 
 pub fn init_idt() {
     let idt = IDT.call_once(|| {
@@ -127,12 +129,27 @@ extern "x86-interrupt" fn page_fault_handler(
     }
 }
 
-extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
+extern "x86-interrupt" fn timer_interrupt_handler(mut stack_frame: InterruptStackFrame) {
     let tick = TICKS.fetch_add(1, Ordering::Relaxed) + 1;
     if tick == 1 && TIMER_REPORTED.swap(1, Ordering::AcqRel) == 0 {
         crate::serial_print(b"AQ OS kernel: interrupts and timer OK\r\n");
     }
     crate::scheduler::on_timer_tick();
+    if stack_frame.code_segment.rpl() == PrivilegeLevel::Ring3
+        && PREEMPTION_REPORTED.load(Ordering::Acquire) == 0
+    {
+        if let Some(next) = unsafe { crate::process::preempt_next() } {
+            unsafe {
+                let mut frame = stack_frame.as_mut();
+                let mut value = frame.read();
+                value.instruction_pointer = VirtAddr::new(next.entry);
+                value.stack_pointer = VirtAddr::new(next.user_stack_top);
+                frame.write(value);
+            }
+            PREEMPTION_REPORTED.store(1, Ordering::Release);
+            crate::serial_print(b"AQ OS kernel: timer preemptive user switch OK\r\n");
+        }
+    }
     unsafe {
         PICS.lock()
             .notify_end_of_interrupt(InterruptIndex::Timer as u8)

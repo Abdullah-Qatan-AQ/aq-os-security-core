@@ -80,3 +80,29 @@ pub unsafe fn yield_next() -> Option<usize> {
     pcb.address_space.activate();
     Some(id)
 }
+
+/// Select and activate the next process for a timer preemption. The caller
+/// must replace the interrupted user return frame with the returned entry and
+/// stack before executing `iretq`.
+pub unsafe fn preempt_next() -> Option<ProcessControlBlock> {
+    let mut table = TABLE.lock();
+    let current = CURRENT.load(Ordering::Relaxed);
+    let id = (1..=MAX_PROCESSES)
+        .map(|offset| (current + offset) % MAX_PROCESSES)
+        .find(|&candidate| {
+            table[candidate].is_some_and(|pcb| pcb.state == State::Runnable)
+        })?;
+    let pcb = table[id]?;
+    for process in table.iter_mut().flatten() {
+        if process.state == State::Running {
+            process.state = State::Runnable;
+        }
+    }
+    table[id] = Some(ProcessControlBlock {
+        state: State::Running,
+        ..pcb
+    });
+    CURRENT.store(id, Ordering::Release);
+    pcb.address_space.activate();
+    Some(pcb)
+}

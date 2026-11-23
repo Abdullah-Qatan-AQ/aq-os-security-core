@@ -27,7 +27,7 @@ fn main() {
     println!("cargo:rustc-env=AQOS_BIOS_IMAGE={}", out.display());
     println!(
         "cargo:rerun-if-changed={}",
-        root.join("kernel/src/main.rs").display()
+        root.join("kernel/src").display()
     );
     println!(
         "cargo:rerun-if-changed={}",
