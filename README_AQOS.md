@@ -23,6 +23,10 @@ cargo run -p aqos-image -- --run
 
 تم تنفيذها داخل النواة Rust: خريطة الذاكرة الفيزيائية من bootloader، تخصيص إطارات `usable`، صفحات heap بحجم 4KiB، و`LockedHeap` كمخصص عام. يختبر QEMU تخصيص `Box` داخل النواة ويطبع `AQ OS kernel: memory manager OK`.
 
+## المرحلة الثانية: المقاطعات والجدولة
+
+تم تنفيذ IDT، معالجات `page fault` و`double fault`، PIC 8259، timer IRQ، عداد ticks، واختيار round-robin أساسي بين المهام المسجلة. يختبر QEMU ذلك ويطبع `AQ OS kernel: interrupts and timer OK`.
+
 ## ما تم تقويته في هذه النسخة
 
 - رفض اشتقاق مفاتيح من مخزن غير مهيأ، والتحقق من طول قياسات PCR.

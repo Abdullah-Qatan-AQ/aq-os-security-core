@@ -1,10 +1,13 @@
 #![no_std]
 #![no_main]
+#![feature(abi_x86_interrupt)]
 
 extern crate alloc;
 
 mod heap;
+mod interrupts;
 mod memory;
+mod scheduler;
 
 use alloc::boxed::Box;
 use bootloader_api::{config::Mapping, entry_point, BootInfo, BootloaderConfig};
@@ -35,10 +38,24 @@ unsafe fn inb(port: u16) -> u8 {
     value
 }
 
-fn serial_print(message: &[u8]) {
+pub fn serial_print(message: &[u8]) {
     for &byte in message {
         serial_write(byte);
     }
+}
+
+pub fn serial_print_hex(value: u64) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    serial_print(b"0x");
+    let mut shift = 60;
+    loop {
+        serial_write(HEX[((value >> shift) & 0xf) as usize]);
+        if shift == 0 {
+            break;
+        }
+        shift -= 4;
+    }
+    serial_print(b"\r\n");
 }
 
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
@@ -55,17 +72,22 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     let allocation = Box::new(0xA005_u64);
     assert_eq!(*allocation, 0xA005_u64);
     serial_print(b"AQ OS kernel: memory manager OK\r\n");
+    scheduler::register(0);
+    scheduler::register(1);
 
-    let message = b"AQ OS kernel: memory manager OK";
-    let vga = 0xb8000 as *mut u8;
-    let mut i = 0;
-    while i < message.len() {
-        unsafe {
-            vga.add(i * 2).write_volatile(message[i]);
-            vga.add(i * 2 + 1).write_volatile(0x0f);
-        }
-        i += 1;
+    interrupts::init_idt();
+    serial_print(b"AQ OS: IDT OK\r\n");
+    unsafe { interrupts::init_pics() };
+    serial_print(b"AQ OS: PIC OK\r\n");
+    interrupts::enable();
+    serial_print(b"AQ OS: interrupts enabled\r\n");
+    while interrupts::ticks() < 10 {
+        x86_64::instructions::hlt();
     }
+    serial_print(b"AQ OS kernel: interrupts and timer OK\r\n");
+    serial_print(b"AQ OS scheduler current task: ");
+    serial_print_hex(scheduler::current() as u64);
+
     loop {
         core::hint::spin_loop();
     }

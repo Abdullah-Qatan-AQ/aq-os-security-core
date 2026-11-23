@@ -7,7 +7,9 @@ license.workspace = true
 [dependencies]
 bootloader_api = "0.11.17"
 linked_list_allocator = "0.10"
-x86_64 = { version = "0.15", default-features = false, features = ["instructions"] }
+pic8259 = "0.10"
+spin = { version = "0.9", default-features = false, features = ["mutex", "spin_mutex", "once"] }
+x86_64 = { version = "0.15", default-features = false, features = ["instructions", "abi_x86_interrupt"] }
 
 [[bin]]
 name = "aqos-kernel"

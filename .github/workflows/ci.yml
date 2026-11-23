@@ -40,3 +40,5 @@ jobs:
           set -e
           test "$code" -eq 124
           grep -q "AQ OS kernel: memory manager OK" qemu.log
+          grep -q "AQ OS kernel: interrupts and timer OK" qemu.log
+          grep -q "AQ OS scheduler current task:" qemu.log

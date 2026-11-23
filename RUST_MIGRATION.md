@@ -8,6 +8,8 @@
 - `image-builder`: ينتج صورة BIOS raw قابلة للإقلاع باستخدام bootloader مفتوح المصدر.
 - `kernel/src/memory.rs`: مخصّص إطارات فيزيائية من خريطة الذاكرة التي يمررها bootloader.
 - `kernel/src/heap.rs`: heap حقيقي بصفحات 4KiB و`LockedHeap` كمخصّص عام.
+- `kernel/src/interrupts.rs`: IDT، استثناءات page fault وdouble fault، PIC 8259، ومقاطعة timer.
+- `kernel/src/scheduler.rs`: round-robin task selection مرتبط بكل timer tick.
 
 ## البناء
 
@@ -20,6 +22,8 @@ cargo run -p aqos-image -- --run
 تم اختبار صورة BIOS فعليًا في QEMU، وظهرت الرسالة `AQ OS kernel: Rust bare-metal boot OK` عبر serial. ما يزال يلزم قبل نظام هاتف فعلي:
 
 تم تنفيذ المرحلة الأولى الآن: تهيئة خريطة الذاكرة الفيزيائية، تخصيص إطارات usable، إنشاء صفحات heap، واختبار `Box` داخل النواة. يظهر في QEMU: `AQ OS kernel: memory manager OK`.
+
+المرحلة الثانية منفذة: IDT وPIC، معالج timer، عداد ticks، ومعالج استثناءات، مع اختيار round-robin بين مهمتين مسجلتين. يظهر في QEMU: `AQ OS kernel: interrupts and timer OK`.
 
 1. boot protocol موثق مثل UEFI أو Multiboot2.
 2. linker script وصورة disk/EFI قابلة للإقلاع.
