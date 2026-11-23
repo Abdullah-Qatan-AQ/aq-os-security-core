@@ -11,6 +11,7 @@
 - `kernel/src/interrupts.rs`: IDT، استثناءات page fault وdouble fault، PIC 8259، ومقاطعة timer.
 - `kernel/src/scheduler.rs`: round-robin task selection مرتبط بكل timer tick.
 - `aqos-syscall`: ABI ثابت لـ syscalls، capabilities، والتحقق من مؤشرات user قبل dispatch.
+- `kernel/src/address_space.rs`: جذور page tables مستقلة لمساحات user، خرائط `USER_ACCESSIBLE`، وحماية صفحات null.
 
 ## البناء
 
@@ -29,6 +30,8 @@ cargo run -p aqos-image -- --run
 المرحلة الثالثة منفذة جزئيًا كطبقة ABI وعزل أولي: `ClockGetTicks` يتطلب `CLOCK_READ`، و`ConsoleWrite` يتطلب `CONSOLE_WRITE`، كما تُرفض المؤشرات الصفرية وخارج نطاق user أو النطاقات التي تتجاوز الحد. يثبت QEMU ذلك عبر الرسالة `AQ OS kernel: syscall capability gate OK`.
 
 لم تُنفذ بعد حلقة دخول syscall عتادية أو ring 3 أو جداول صفحات user منفصلة أو محمّل ELF؛ لذلك لا ينبغي اعتبار هذه الطبقة عزل عمليات كاملًا.
+
+المرحلة الرابعة منفذة كأساس MMU للعزل: يُنشأ root page table مستقل لكل مساحة، وتُخرط الصفحة الافتراضية نفسها في مساحتين بإطارين مختلفين. يثبت QEMU ذلك عبر `AQ OS kernel: isolated user address spaces OK`. لم يُفعّل تبديل `CR3` أو ring 3 بعد، ولا تزال خرائط kernel المشتركة ومحمّل ELF ومسار syscall العتادي ضمن المراحل اللاحقة.
 
 1. boot protocol موثق مثل UEFI أو Multiboot2.
 2. linker script وصورة disk/EFI قابلة للإقلاع.

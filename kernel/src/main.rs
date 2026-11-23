@@ -4,6 +4,7 @@
 
 extern crate alloc;
 
+mod address_space;
 mod heap;
 mod interrupts;
 mod memory;
@@ -13,6 +14,10 @@ use alloc::boxed::Box;
 use aqos_syscall::{dispatch, Args, Capabilities, Error, Number, TaskContext};
 use bootloader_api::{config::Mapping, entry_point, BootInfo, BootloaderConfig};
 use core::{arch::asm, panic::PanicInfo};
+use x86_64::{
+    structures::paging::{FrameAllocator, Page, Size4KiB},
+    VirtAddr,
+};
 
 pub static BOOTLOADER_CONFIG: BootloaderConfig = {
     let mut config = BootloaderConfig::new_default();
@@ -69,6 +74,34 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     let memory_regions = unsafe { core::ptr::read(&boot_info.memory_regions) };
     let mut frame_allocator = unsafe { memory::BootInfoFrameAllocator::init(memory_regions) };
     heap::init_heap(&mut mapper, &mut frame_allocator).expect("heap initialization failed");
+
+    let root_a =
+        unsafe { address_space::create_root(physical_memory_offset, &mut frame_allocator) }
+            .expect("user address-space root allocation failed");
+    let root_b =
+        unsafe { address_space::create_root(physical_memory_offset, &mut frame_allocator) }
+            .expect("second user address-space root allocation failed");
+    let user_page =
+        Page::<Size4KiB>::containing_address(VirtAddr::new(address_space::USER_IMAGE_BASE));
+    let user_frame_a = frame_allocator
+        .allocate_frame()
+        .expect("user page frame allocation failed");
+    let user_frame_b = frame_allocator
+        .allocate_frame()
+        .expect("second user page frame allocation failed");
+    let mut mapper_a = unsafe { address_space::mapper_for_root(root_a, physical_memory_offset) };
+    let mut mapper_b = unsafe { address_space::mapper_for_root(root_b, physical_memory_offset) };
+    unsafe {
+        address_space::map_user_page(&mut mapper_a, user_page, user_frame_a, &mut frame_allocator)
+            .expect("user page mapping A failed");
+        address_space::map_user_page(&mut mapper_b, user_page, user_frame_b, &mut frame_allocator)
+            .expect("user page mapping B failed");
+    }
+    assert!(address_space::same_virtual_page_is_isolated(
+        &mapper_a, &mapper_b, user_page,
+    ));
+    assert!(!address_space::is_user_address(0));
+    serial_print(b"AQ OS kernel: isolated user address spaces OK\r\n");
 
     let allocation = Box::new(0xA005_u64);
     assert_eq!(*allocation, 0xA005_u64);
