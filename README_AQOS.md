@@ -51,6 +51,12 @@ cargo run -p aqos-image -- --run
 
 المسار الحالي هو انتقال تجريبي آمن ومحدود، وليس بعد عملية كاملة: لا يوجد محمّل ELF، ولا مكدس kernel لكل عملية ديناميكي، ولا بوابة `syscall/sysret`، ولا حفظ/استعادة سجلات user عند الجدولة.
 
+## المرحلة السابعة: بوابة syscall/sysret العتادية
+
+تم تنفيذ مدخل `syscall` حقيقي على x86_64. تهيئ النواة MSRs الخاصة بـ `EFER.SCE` و`STAR` و`LSTAR` و`FMASK` و`KERNEL_GS_BASE`، ويبدّل stub assembly إلى مكدس kernel، يحفظ `RCX/R11`، يستدعي معالج Rust، ثم يعيد التنفيذ إلى ring3 عبر `sysretq`. كود user يستدعي الرقم 1، ويثبت QEMU النجاح عبر `AQ OS kernel: hardware syscall entry OK` دون page fault أو double fault.
+
+هذه بوابة أولية للاختبار وليست ABI إنتاجية كاملة بعد: ما زال يلزم حفظ جميع سجلات caller-saved، ربط dispatcher بالصلاحيات والذاكرة user، معالجة الإشارات، ومكدس مستقل لكل CPU/عملية.
+
 ## ما تم تقويته في هذه النسخة
 
 - رفض اشتقاق مفاتيح من مخزن غير مهيأ، والتحقق من طول قياسات PCR.

@@ -10,6 +10,7 @@ mod heap;
 mod interrupts;
 mod memory;
 mod scheduler;
+mod syscall_entry;
 
 use alloc::boxed::Box;
 use aqos_syscall::{dispatch, Args, Capabilities, Error, Number, TaskContext};
@@ -148,8 +149,16 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         let code = (physical_memory_offset + user_frame_a.start_address().as_u64()) as *mut u8;
         core::ptr::write_bytes(code, 0xF4, Size4KiB::SIZE as usize);
         core::ptr::write(code, 0xCC);
-        core::ptr::write(code.add(1), 0xEB);
-        core::ptr::write(code.add(2), 0xFE);
+        // int3; mov eax, 1; syscall; jmp $ — exercises both IDT and MSR path.
+        core::ptr::write(code.add(1), 0xB8);
+        core::ptr::write(code.add(2), 1);
+        core::ptr::write(code.add(3), 0);
+        core::ptr::write(code.add(4), 0);
+        core::ptr::write(code.add(5), 0);
+        core::ptr::write(code.add(6), 0x0F);
+        core::ptr::write(code.add(7), 0x05);
+        core::ptr::write(code.add(8), 0xEB);
+        core::ptr::write(code.add(9), 0xFE);
     }
     assert!(address_space::same_virtual_page_is_isolated(
         &mapper_a, &mapper_b, user_page,
@@ -194,6 +203,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     serial_print(b"AQ OS: IDT OK\r\n");
     unsafe { interrupts::init_pics() };
     serial_print(b"AQ OS: PIC OK\r\n");
+    unsafe {
+        syscall_entry::init(selectors.kernel_code.0, selectors.user_code.0);
+    }
+    serial_print(b"AQ OS kernel: syscall MSRs OK\r\n");
     x86_64::instructions::interrupts::disable();
     serial_print(b"AQ OS: interrupts configured\r\n");
     serial_print(b"AQ OS kernel: entering ring3 test\r\n");

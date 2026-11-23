@@ -12,6 +12,7 @@ pub fn register(task_id: usize) -> bool {
     true
 }
 
+#[allow(dead_code)]
 pub fn current() -> usize {
     CURRENT.load(Ordering::Acquire)
 }

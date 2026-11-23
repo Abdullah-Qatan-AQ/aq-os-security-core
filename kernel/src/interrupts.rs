@@ -50,10 +50,12 @@ pub unsafe fn init_pics() {
     PICS.lock().write_masks(0, 0);
 }
 
+#[allow(dead_code)]
 pub fn enable() {
     x86_64::instructions::interrupts::enable();
 }
 
+#[allow(dead_code)]
 pub fn ticks() -> u64 {
     TICKS.load(Ordering::Relaxed)
 }

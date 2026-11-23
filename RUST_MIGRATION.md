@@ -14,6 +14,7 @@
 - `kernel/src/address_space.rs`: جذور page tables مستقلة لمساحات user، خرائط `USER_ACCESSIBLE`، وحماية صفحات null.
 - `AddressSpace::activate`: تبديل CR3 مع الاحتفاظ بخرائط kernel والعودة الآمنة إلى الجذر السابق.
 - `kernel/src/gdt.rs`: GDT مع user code/data selectors وTSS ومكدس kernel لانتقالات ring3.
+- `kernel/src/syscall_entry.rs`: تهيئة MSRs ومدخل assembly لـ `syscall` والعودة عبر `sysretq`.
 
 ## البناء
 
@@ -38,6 +39,8 @@ cargo run -p aqos-image -- --run
 المرحلة الخامسة منفذة: تُبنى مساحة بعنوان user مع خرائط kernel اللازمة، ويُختبر تبديل `CR3` بين مساحتين ثم استعادة جذر النواة. يثبت QEMU ذلك عبر `AQ OS kernel: user address spaces and CR3 switch OK`. ما يزال هذا تبديلًا بدائيًا للنواة، وليس تبديل سياق user كاملًا.
 
 المرحلة السادسة منفذة جزئيًا: تهيئة GDT/TSS، إنشاء user code وuser stack، والانتقال إلى ring3 عبر `iretq`. يطلق البرنامج user `int3` عبر IDT ذات DPL3، ويثبت QEMU وصول trap من مستوى 3 عبر `AQ OS kernel: ring3 breakpoint trap OK`. لا يزال محمّل ELF، و`syscall/sysret`، وحفظ سجلات العمليات ضمن المراحل التالية.
+
+المرحلة السابعة منفذة كأساس عتادي: تُفعّل MSRs الخاصة بـ `syscall/sysret`، ويستخدم المدخل assembly مكدسًا kernel عبر `swapgs`، يحفظ `RCX/R11`، يستدعي Rust، ثم يعيد التنفيذ إلى user. يثبت QEMU ذلك عبر `AQ OS kernel: hardware syscall entry OK`. يلزم لاحقًا ربطه بمدقق ABI وcapabilities وحفظ كامل للسجلات.
 
 1. boot protocol موثق مثل UEFI أو Multiboot2.
 2. linker script وصورة disk/EFI قابلة للإقلاع.

@@ -16,6 +16,7 @@ static GDT: Once<(GlobalDescriptorTable, Selectors)> = Once::new();
 
 #[derive(Clone, Copy)]
 pub struct Selectors {
+    pub kernel_code: SegmentSelector,
     pub user_code: SegmentSelector,
     pub user_data: SegmentSelector,
     pub tss: SegmentSelector,
@@ -34,13 +35,14 @@ pub fn init() -> Selectors {
     });
     GDT.call_once(|| {
         let mut gdt = GlobalDescriptorTable::new();
-        let _kernel_code = gdt.append(Descriptor::kernel_code_segment());
+        let kernel_code = gdt.append(Descriptor::kernel_code_segment());
         let user_data = gdt.append(Descriptor::user_data_segment());
         let user_code = gdt.append(Descriptor::user_code_segment());
         let tss_selector = gdt.append(Descriptor::tss_segment(tss));
         (
             gdt,
             Selectors {
+                kernel_code,
                 user_code: SegmentSelector::new(user_code.index(), PrivilegeLevel::Ring3),
                 user_data: SegmentSelector::new(user_data.index(), PrivilegeLevel::Ring3),
                 tss: tss_selector,
