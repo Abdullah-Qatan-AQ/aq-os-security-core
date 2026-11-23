@@ -27,6 +27,12 @@ cargo run -p aqos-image -- --run
 
 تم تنفيذ IDT، معالجات `page fault` و`double fault`، PIC 8259، timer IRQ، عداد ticks، واختيار round-robin أساسي بين المهام المسجلة. يختبر QEMU ذلك ويطبع `AQ OS kernel: interrupts and timer OK`.
 
+## المرحلة الثالثة: syscall ABI والعزل الأولي
+
+تمت إضافة مكتبة `aqos-syscall` بنمط `no_std` لتعريف أرقام syscalls وبنية ABI ثابتة (`repr(C)`)، وطبقة capabilities تمنح أقل صلاحية لازمة لكل مهمة. يتحقق dispatcher من الصلاحيات قبل تنفيذ `ClockGetTicks` و`ConsoleWrite`، ويتحقق `UserPtr` من العنوان والنطاق ومن تجاوزات الحساب. يختبر QEMU السماح بقراءة ticks ورفض الكتابة إلى الطرفية عند غياب capability، ويطبع `AQ OS kernel: syscall capability gate OK`.
+
+هذه المرحلة ليست user mode مكتملًا بعد: لا توجد حاليًا حلقة دخول `syscall`/`sysret` حقيقية، ولا ring 3 أو جداول صفحات منفصلة أو محمّل ELF. ستُنفذ هذه المكونات في المراحل التالية.
+
 ## ما تم تقويته في هذه النسخة
 
 - رفض اشتقاق مفاتيح من مخزن غير مهيأ، والتحقق من طول قياسات PCR.
@@ -54,7 +60,7 @@ cargo run -p aqos-image -- --run
 
 1. إعادة كتابة الأجزاء الحساسة بلغة آمنة للذاكرة مثل Rust، وتشغيلها فوق microkernel أو TEE حقيقي.
 2. ربط `HardwareKeystore` بـ Secure Element/TEE حقيقي مع مقاومة إعادة التشغيل والتلاعب.
-3. تنفيذ MMU، عزل العمليات، صلاحيات الملفات، sandbox، وواجهات تشغيل حقيقية بدل القواميس داخل الذاكرة.
+3. إكمال ring 3، جداول صفحات user منفصلة، مسار syscall حقيقي، ومحمّل ELF.
 4. إضافة تخزين دائم مشفر، إدارة مفاتيح استرداد، وتحديثات A/B موقعة مع rollback آمن.
 5. بناء مكدس شبكة حقيقي، تحقق DNS، سياسات شهادات، ومخزن CA قابل للتحديث.
 6. إضافة تدقيق خارجي، fuzzing، اختبارات property-based، وSBOM وبناء reproducible.

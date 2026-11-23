@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+aqos-syscall = { path = "../aqos-syscall" }
 bootloader_api = "0.11.17"
 linked_list_allocator = "0.10"
 pic8259 = "0.10"

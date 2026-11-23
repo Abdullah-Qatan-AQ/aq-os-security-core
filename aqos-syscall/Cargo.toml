@@ -1,0 +1,9 @@
+[package]
+name = "aqos-syscall"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "AQ OS syscall ABI and capability boundary"
+
+[lib]
+path = "src/lib.rs"

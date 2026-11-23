@@ -10,6 +10,7 @@ mod memory;
 mod scheduler;
 
 use alloc::boxed::Box;
+use aqos_syscall::{dispatch, Args, Capabilities, Error, Number, TaskContext};
 use bootloader_api::{config::Mapping, entry_point, BootInfo, BootloaderConfig};
 use core::{arch::asm, panic::PanicInfo};
 
@@ -74,6 +75,24 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     serial_print(b"AQ OS kernel: memory manager OK\r\n");
     scheduler::register(0);
     scheduler::register(1);
+    let task = TaskContext {
+        id: 1,
+        capabilities: Capabilities::CLOCK_READ,
+    };
+    let ticks = dispatch(task, Number::ClockGetTicks as u64, Args::default(), 7).unwrap();
+    assert_eq!(ticks, 7);
+    let denied = dispatch(
+        task,
+        Number::ConsoleWrite as u64,
+        Args {
+            a0: 0x1000,
+            a1: 4,
+            ..Args::default()
+        },
+        0,
+    );
+    assert_eq!(denied, Err(Error::PermissionDenied));
+    serial_print(b"AQ OS kernel: syscall capability gate OK\r\n");
 
     interrupts::init_idt();
     serial_print(b"AQ OS: IDT OK\r\n");

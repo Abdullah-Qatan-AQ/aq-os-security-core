@@ -1,5 +1,5 @@
 [workspace]
-members = ["kernel", "aqos-policy", "image-builder"]
+members = ["kernel", "aqos-policy", "aqos-syscall", "image-builder"]
 resolver = "2"
 
 [profile.dev]

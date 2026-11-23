@@ -28,6 +28,7 @@ jobs:
           targets: x86_64-unknown-none
           components: rust-src,llvm-tools-preview
       - run: cargo test -p aqos-policy
+      - run: cargo test -p aqos-syscall
       - run: cargo build -p aqos-kernel --target x86_64-unknown-none
       - run: cargo run -p aqos-image
       - run: sudo apt-get update && sudo apt-get install -y qemu-system-x86
@@ -40,5 +41,6 @@ jobs:
           set -e
           test "$code" -eq 124
           grep -q "AQ OS kernel: memory manager OK" qemu.log
+          grep -q "AQ OS kernel: syscall capability gate OK" qemu.log
           grep -q "AQ OS kernel: interrupts and timer OK" qemu.log
           grep -q "AQ OS scheduler current task:" qemu.log
