@@ -5,6 +5,7 @@
 extern crate alloc;
 
 mod address_space;
+mod elf;
 mod gdt;
 mod heap;
 mod interrupts;
@@ -39,18 +40,51 @@ const USER_STACK_BASE: u64 = 0x0000_0000_0080_0000;
 
 unsafe fn enter_user_mode(
     space: address_space::AddressSpace,
+    entry: u64,
     user_code: SegmentSelector,
     user_data: SegmentSelector,
 ) -> ! {
     space.activate();
     let frame = InterruptStackFrame::new(
-        VirtAddr::new(address_space::USER_IMAGE_BASE),
+        VirtAddr::new(entry),
         user_code,
         RFlags::from_bits_retain(0x202),
         VirtAddr::new(USER_STACK_BASE + Size4KiB::SIZE),
         user_data,
     );
     frame.iretq()
+}
+
+const TEST_ELF_SIZE: usize = 0x110A;
+static mut TEST_ELF: [u8; TEST_ELF_SIZE] = [0; TEST_ELF_SIZE];
+
+fn build_test_elf() -> &'static [u8] {
+    unsafe {
+        let image = &mut *core::ptr::addr_of_mut!(TEST_ELF);
+        image[0..4].copy_from_slice(b"\x7fELF");
+        image[4] = 2;
+        image[5] = 1;
+        image[6] = 1;
+        image[16..18].copy_from_slice(&2u16.to_le_bytes());
+        image[18..20].copy_from_slice(&0x3Eu16.to_le_bytes());
+        image[20..24].copy_from_slice(&1u32.to_le_bytes());
+        image[24..32].copy_from_slice(&(address_space::USER_IMAGE_BASE + 0x100).to_le_bytes());
+        image[32..40].copy_from_slice(&64u64.to_le_bytes());
+        image[52..54].copy_from_slice(&64u16.to_le_bytes());
+        image[54..56].copy_from_slice(&56u16.to_le_bytes());
+        image[56..58].copy_from_slice(&1u16.to_le_bytes());
+        let ph = 64;
+        image[ph..ph + 4].copy_from_slice(&1u32.to_le_bytes());
+        image[ph + 4..ph + 8].copy_from_slice(&5u32.to_le_bytes());
+        image[ph + 8..ph + 16].copy_from_slice(&0x1100u64.to_le_bytes());
+        image[ph + 16..ph + 24]
+            .copy_from_slice(&(address_space::USER_IMAGE_BASE + 0x100).to_le_bytes());
+        image[ph + 32..ph + 40].copy_from_slice(&10u64.to_le_bytes());
+        image[ph + 40..ph + 48].copy_from_slice(&10u64.to_le_bytes());
+        image[ph + 48..ph + 56].copy_from_slice(&0x1000u64.to_le_bytes());
+        image[0x1100..0x110A].copy_from_slice(&[0xCC, 0xB8, 1, 0, 0, 0, 0x0F, 0x05, 0xEB, 0xFE]);
+        core::slice::from_raw_parts(core::ptr::addr_of!(TEST_ELF) as *const u8, TEST_ELF_SIZE)
+    }
 }
 
 fn serial_write(byte: u8) {
@@ -119,9 +153,6 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     .expect("second user address-space root allocation failed");
     let user_page =
         Page::<Size4KiB>::containing_address(VirtAddr::new(address_space::USER_IMAGE_BASE));
-    let user_frame_a = frame_allocator
-        .allocate_frame()
-        .expect("user page frame allocation failed");
     let user_frame_b = frame_allocator
         .allocate_frame()
         .expect("second user page frame allocation failed");
@@ -133,8 +164,6 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     let mut mapper_b =
         unsafe { address_space::mapper_for_root(space_b.root_frame(), physical_memory_offset) };
     unsafe {
-        address_space::map_user_page(&mut mapper_a, user_page, user_frame_a, &mut frame_allocator)
-            .expect("user page mapping A failed");
         address_space::map_user_page(&mut mapper_b, user_page, user_frame_b, &mut frame_allocator)
             .expect("user page mapping B failed");
         address_space::map_user_page(
@@ -145,21 +174,17 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         )
         .expect("user stack mapping failed");
     }
-    unsafe {
-        let code = (physical_memory_offset + user_frame_a.start_address().as_u64()) as *mut u8;
-        core::ptr::write_bytes(code, 0xF4, Size4KiB::SIZE as usize);
-        core::ptr::write(code, 0xCC);
-        // int3; mov eax, 1; syscall; jmp $ — exercises both IDT and MSR path.
-        core::ptr::write(code.add(1), 0xB8);
-        core::ptr::write(code.add(2), 1);
-        core::ptr::write(code.add(3), 0);
-        core::ptr::write(code.add(4), 0);
-        core::ptr::write(code.add(5), 0);
-        core::ptr::write(code.add(6), 0x0F);
-        core::ptr::write(code.add(7), 0x05);
-        core::ptr::write(code.add(8), 0xEB);
-        core::ptr::write(code.add(9), 0xFE);
+    let loaded = unsafe {
+        elf::load(
+            build_test_elf(),
+            &mut mapper_a,
+            &mut frame_allocator,
+            physical_memory_offset,
+        )
     }
+    .expect("ELF user image load failed");
+    assert_eq!(loaded.load_segments, 1);
+    serial_print(b"AQ OS kernel: ELF user image loaded OK\r\n");
     assert!(address_space::same_virtual_page_is_isolated(
         &mapper_a, &mapper_b, user_page,
     ));
@@ -210,7 +235,14 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     x86_64::instructions::interrupts::disable();
     serial_print(b"AQ OS: interrupts configured\r\n");
     serial_print(b"AQ OS kernel: entering ring3 test\r\n");
-    unsafe { enter_user_mode(space_a, selectors.user_code, selectors.user_data) }
+    unsafe {
+        enter_user_mode(
+            space_a,
+            loaded.entry,
+            selectors.user_code,
+            selectors.user_data,
+        )
+    }
 }
 
 #[panic_handler]

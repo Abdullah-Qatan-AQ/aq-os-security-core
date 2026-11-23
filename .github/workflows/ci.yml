@@ -47,4 +47,5 @@ jobs:
           grep -q "AQ OS kernel: entering ring3 test" qemu.log
           grep -q "AQ OS kernel: ring3 breakpoint trap OK" qemu.log
           grep -q "AQ OS kernel: syscall MSRs OK" qemu.log
+          grep -q "AQ OS kernel: ELF user image loaded OK" qemu.log
           grep -q "AQ OS kernel: hardware syscall entry OK" qemu.log
