@@ -15,6 +15,7 @@ use aqos_syscall::{dispatch, Args, Capabilities, Error, Number, TaskContext};
 use bootloader_api::{config::Mapping, entry_point, BootInfo, BootloaderConfig};
 use core::{arch::asm, panic::PanicInfo};
 use x86_64::{
+    registers::control::Cr3,
     structures::paging::{FrameAllocator, Page, Size4KiB},
     VirtAddr,
 };
@@ -75,12 +76,20 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     let mut frame_allocator = unsafe { memory::BootInfoFrameAllocator::init(memory_regions) };
     heap::init_heap(&mut mapper, &mut frame_allocator).expect("heap initialization failed");
 
-    let root_a =
-        unsafe { address_space::create_root(physical_memory_offset, &mut frame_allocator) }
-            .expect("user address-space root allocation failed");
-    let root_b =
-        unsafe { address_space::create_root(physical_memory_offset, &mut frame_allocator) }
-            .expect("second user address-space root allocation failed");
+    let space_a = unsafe {
+        address_space::create_root_with_kernel_mappings(
+            physical_memory_offset,
+            &mut frame_allocator,
+        )
+    }
+    .expect("user address-space root allocation failed");
+    let space_b = unsafe {
+        address_space::create_root_with_kernel_mappings(
+            physical_memory_offset,
+            &mut frame_allocator,
+        )
+    }
+    .expect("second user address-space root allocation failed");
     let user_page =
         Page::<Size4KiB>::containing_address(VirtAddr::new(address_space::USER_IMAGE_BASE));
     let user_frame_a = frame_allocator
@@ -89,8 +98,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     let user_frame_b = frame_allocator
         .allocate_frame()
         .expect("second user page frame allocation failed");
-    let mut mapper_a = unsafe { address_space::mapper_for_root(root_a, physical_memory_offset) };
-    let mut mapper_b = unsafe { address_space::mapper_for_root(root_b, physical_memory_offset) };
+    let mut mapper_a =
+        unsafe { address_space::mapper_for_root(space_a.root_frame(), physical_memory_offset) };
+    let mut mapper_b =
+        unsafe { address_space::mapper_for_root(space_b.root_frame(), physical_memory_offset) };
     unsafe {
         address_space::map_user_page(&mut mapper_a, user_page, user_frame_a, &mut frame_allocator)
             .expect("user page mapping A failed");
@@ -101,7 +112,16 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         &mapper_a, &mapper_b, user_page,
     ));
     assert!(!address_space::is_user_address(0));
-    serial_print(b"AQ OS kernel: isolated user address spaces OK\r\n");
+    let (original_root, original_flags) = Cr3::read();
+    unsafe {
+        space_a.activate();
+        assert_eq!(Cr3::read().0, space_a.root_frame());
+        space_b.activate();
+        assert_eq!(Cr3::read().0, space_b.root_frame());
+        Cr3::write(original_root, original_flags);
+    }
+    assert_eq!(Cr3::read().0, original_root);
+    serial_print(b"AQ OS kernel: user address spaces and CR3 switch OK\r\n");
 
     let allocation = Box::new(0xA005_u64);
     assert_eq!(*allocation, 0xA005_u64);

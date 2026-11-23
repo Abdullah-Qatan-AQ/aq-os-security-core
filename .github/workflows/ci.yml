@@ -40,7 +40,7 @@ jobs:
           code=$?
           set -e
           test "$code" -eq 124
-          grep -q "AQ OS kernel: isolated user address spaces OK" qemu.log
+          grep -q "AQ OS kernel: user address spaces and CR3 switch OK" qemu.log
           grep -q "AQ OS kernel: memory manager OK" qemu.log
           grep -q "AQ OS kernel: syscall capability gate OK" qemu.log
           grep -q "AQ OS kernel: interrupts and timer OK" qemu.log

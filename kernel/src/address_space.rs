@@ -1,5 +1,6 @@
 use crate::memory::BootInfoFrameAllocator;
 use x86_64::{
+    registers::control::Cr3,
     structures::paging::{
         mapper::MapToError, page_table::PageTableFlags, FrameAllocator, Mapper, OffsetPageTable,
         Page, PageSize, PageTable, PhysFrame, Size4KiB,
@@ -16,6 +17,28 @@ pub const USER_ADDRESS_MAX: u64 = 0x0000_7fff_ffff_ffff;
 pub const USER_PAGE_FLAGS: PageTableFlags = PageTableFlags::PRESENT
     .union(PageTableFlags::WRITABLE)
     .union(PageTableFlags::USER_ACCESSIBLE);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AddressSpace {
+    root: PhysFrame,
+}
+
+impl AddressSpace {
+    pub const fn new(root: PhysFrame) -> Self {
+        Self { root }
+    }
+
+    pub const fn root_frame(self) -> PhysFrame {
+        self.root
+    }
+
+    /// Activate this address space. The caller must keep kernel mappings in
+    /// the root and must ensure interrupts cannot run during the switch.
+    pub unsafe fn activate(self) {
+        let (_, flags) = Cr3::read();
+        Cr3::write(self.root, flags);
+    }
+}
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -42,6 +65,26 @@ pub unsafe fn create_root(
         Size4KiB::SIZE as usize,
     );
     Some(frame)
+}
+
+/// Allocate a root and copy the currently active kernel mappings into it.
+/// User entries are still added explicitly through `map_user_page`; copying
+/// the root makes a later CR3 switch safe for code executing in the kernel.
+pub unsafe fn create_root_with_kernel_mappings(
+    physical_memory_offset: u64,
+    frame_allocator: &mut BootInfoFrameAllocator,
+) -> Option<AddressSpace> {
+    let root = create_root(physical_memory_offset, frame_allocator)?;
+    let active = crate::memory::active_level_4_table(physical_memory_offset);
+    let root_virtual = VirtAddr::new(physical_memory_offset + root.start_address().as_u64());
+    let root_table = &mut *root_virtual.as_mut_ptr::<PageTable>();
+    // PML4[0] owns the low user half. Keep it empty so user mappings are
+    // created explicitly and stale bootloader mappings cannot leak across
+    // address spaces.
+    for index in 1..512 {
+        root_table[index] = active[index].clone();
+    }
+    Some(AddressSpace::new(root))
 }
 
 /// Build an OffsetPageTable view over an independently allocated root table.

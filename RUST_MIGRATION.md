@@ -12,6 +12,7 @@
 - `kernel/src/scheduler.rs`: round-robin task selection مرتبط بكل timer tick.
 - `aqos-syscall`: ABI ثابت لـ syscalls، capabilities، والتحقق من مؤشرات user قبل dispatch.
 - `kernel/src/address_space.rs`: جذور page tables مستقلة لمساحات user، خرائط `USER_ACCESSIBLE`، وحماية صفحات null.
+- `AddressSpace::activate`: تبديل CR3 مع الاحتفاظ بخرائط kernel والعودة الآمنة إلى الجذر السابق.
 
 ## البناء
 
@@ -32,6 +33,8 @@ cargo run -p aqos-image -- --run
 لم تُنفذ بعد حلقة دخول syscall عتادية أو ring 3 أو جداول صفحات user منفصلة أو محمّل ELF؛ لذلك لا ينبغي اعتبار هذه الطبقة عزل عمليات كاملًا.
 
 المرحلة الرابعة منفذة كأساس MMU للعزل: يُنشأ root page table مستقل لكل مساحة، وتُخرط الصفحة الافتراضية نفسها في مساحتين بإطارين مختلفين. يثبت QEMU ذلك عبر `AQ OS kernel: isolated user address spaces OK`. لم يُفعّل تبديل `CR3` أو ring 3 بعد، ولا تزال خرائط kernel المشتركة ومحمّل ELF ومسار syscall العتادي ضمن المراحل اللاحقة.
+
+المرحلة الخامسة منفذة: تُبنى مساحة بعنوان user مع خرائط kernel اللازمة، ويُختبر تبديل `CR3` بين مساحتين ثم استعادة جذر النواة. يثبت QEMU ذلك عبر `AQ OS kernel: user address spaces and CR3 switch OK`. ما يزال هذا تبديلًا بدائيًا للنواة، وليس تبديل سياق user كاملًا.
 
 1. boot protocol موثق مثل UEFI أو Multiboot2.
 2. linker script وصورة disk/EFI قابلة للإقلاع.
